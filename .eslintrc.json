@@ -1,0 +1,22 @@
+{
+  "env": {
+    "es6": true
+  },
+  "globals": {
+    "DocumentApp": "readonly",
+    "CacheService": "readonly",
+    "PropertiesService": "readonly",
+    "HtmlService": "readonly",
+    "CardService": "readonly",
+    "Docs": "readonly",
+    "Logger": "readonly",
+    "StorageService": "readonly",
+    "SyncEngine": "readonly",
+    "MutationExecutor": "readonly",
+    "NumberingService": "readonly"
+  },
+  "rules": {
+    "no-var": "off",
+    "prefer-const": "off"
+  }
+}

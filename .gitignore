@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+*.local
+
+# clasp OAuth tokens
+.clasprc.json
+
+# AI agent runtime files
+.ai/
+.claude/
+.cursor/
+.kiro/
+AGENTS.md
+CLAUDE.md
+SOUL.md
+HEARTBEAT.md
+IDENTITY.md
+USER.md
+
+# Wiki operations log (agent-internal)
+log.md
+index.md

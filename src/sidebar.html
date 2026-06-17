@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mostly Organised</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #ffffff;
+  --border:   #e0e0e0;
+  --text:     #202124;
+  --muted:    #5f6368;
+  --accent:   #1a73e8;
+  --amber:    #f29900;
+  --red:      #d93025;
+  --hover:    #f1f3f4;
+  --drag-ok:  #1a73e8;
+  --row-h:    28px;
+  --font:     'Google Sans', Roboto, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  overflow-x: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  flex-shrink: 0;
+}
+.header-title { font-weight: 600; font-size: 14px; flex: 1; }
+.icon-btn {
+  background: none; border: none; cursor: pointer;
+  padding: 4px; border-radius: 4px; color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+}
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Sync bar */
+.sync-bar {
+  padding: 3px 12px 5px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 20px;
+}
+.sync-bar.warn  { color: var(--amber); }
+.sync-bar.error { color: var(--red); }
+
+/* Toolbar */
+.toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.scheme-select {
+  font-size: 12px; font-family: var(--font);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 6px; background: var(--bg); cursor: pointer;
+}
+.search-input {
+  flex: 1; font-size: 12px; font-family: var(--font);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 8px; outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+
+/* Tree */
+.tree { flex: 1; overflow-y: auto; padding: 4px 0 24px; }
+.orphan-divider { height: 1px; background: var(--border); margin: 8px 10px; }
+.empty-state {
+  padding: 32px 16px; text-align: center;
+  color: var(--muted); line-height: 1.6; white-space: pre-line;
+}
+
+/* Node row */
+.node-row {
+  display: flex; align-items: center;
+  height: var(--row-h); padding-right: 4px;
+  position: relative; user-select: none; cursor: default;
+}
+.node-row:hover { background: var(--hover); }
+.node-row.dragging { opacity: 0.35; }
+
+.node-row.drop-before::before {
+  content: ''; position: absolute; top: -1px; left: 8px; right: 8px;
+  height: 2px; background: var(--drag-ok); border-radius: 1px; z-index: 1;
+}
+.node-row.drop-after::after {
+  content: ''; position: absolute; bottom: -1px; left: 8px; right: 8px;
+  height: 2px; background: var(--drag-ok); border-radius: 1px; z-index: 1;
+}
+.node-row.drop-child { background: #e8f0fe; border-left: 2px solid var(--drag-ok); }
+
+/* Drag handle */
+.drag-handle {
+  visibility: hidden; cursor: grab;
+  color: var(--muted); padding: 0 3px; flex-shrink: 0;
+  font-size: 12px; line-height: var(--row-h);
+}
+.node-row:hover .drag-handle { visibility: visible; }
+.drag-handle:active { cursor: grabbing; }
+
+/* Expand toggle */
+.toggle {
+  width: 16px; height: var(--row-h);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 10px; color: var(--muted);
+}
+.toggle.has-children { cursor: pointer; }
+.toggle.leaf { color: transparent; }
+
+/* Status icon */
+.status-icon { font-size: 12px; margin-right: 3px; flex-shrink: 0; cursor: pointer; }
+.status-icon.stale   { color: var(--amber); }
+.status-icon.orphaned { color: var(--red); }
+
+/* Number */
+.node-num {
+  color: var(--muted); font-size: 11px;
+  margin-right: 4px; flex-shrink: 0; white-space: nowrap;
+}
+
+/* Label */
+.node-label {
+  flex: 1; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; line-height: var(--row-h); cursor: pointer;
+}
+.node-label.orphaned { text-decoration: line-through; color: var(--muted); }
+.node-label.override { font-style: italic; }
+
+/* Inline edit */
+.label-input {
+  flex: 1; font-size: 13px; font-family: var(--font);
+  border: 1px solid var(--accent); border-radius: 2px;
+  padding: 0 4px; height: 22px; outline: none;
+}
+
+/* Options button */
+.options-btn {
+  visibility: hidden; background: none; border: none;
+  cursor: pointer; padding: 0 4px; color: var(--muted);
+  font-size: 16px; line-height: var(--row-h);
+  border-radius: 3px; flex-shrink: 0;
+}
+.node-row:hover .options-btn { visibility: visible; }
+.options-btn:hover { background: var(--border); }
+
+/* Busy spinner */
+.busy-dot {
+  width: 12px; height: 12px; flex-shrink: 0;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+
+/* Context menu */
+.ctx-menu {
+  position: fixed; z-index: 1000;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+  padding: 4px 0; min-width: 188px;
+}
+.ctx-item { padding: 7px 16px; cursor: pointer; font-size: 13px; }
+.ctx-item:hover { background: var(--hover); }
+.ctx-item.off { color: var(--muted); cursor: default; pointer-events: none; }
+.ctx-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
+/* Stale popover */
+.stale-pop {
+  position: fixed; z-index: 1001;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+  padding: 12px 14px; max-width: 238px;
+  font-size: 12px; line-height: 1.5;
+}
+.stale-pop p { color: var(--muted); margin-bottom: 6px; }
+.stale-pop strong { color: var(--text); }
+.stale-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.btn {
+  font-size: 11px; font-family: var(--font);
+  padding: 4px 10px; border-radius: 4px;
+  border: 1px solid var(--border); cursor: pointer;
+  background: var(--bg); color: var(--text);
+}
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { background: #1557b0; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 14px; left: 50%;
+  transform: translateX(-50%);
+  background: #3c4043; color: #fff;
+  padding: 7px 14px; border-radius: 4px;
+  font-size: 12px; z-index: 2000;
+  max-width: 230px; text-align: center;
+  pointer-events: none;
+  opacity: 0; transition: opacity 0.15s;
+}
+.toast.show { opacity: 1; }
+.toast.error { background: var(--red); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!--
+  Preact 10 standalone UMD build — no CDN, no ESM, no bundler required.
+  Source: https://unpkg.com/preact@10.22.0/dist/preact.umd.js  (inlined below)
+  Apps Script's HtmlService CSP blocks external script src; everything must be inline.
+-->
+<script>
+/* preact 10.22.0 UMD — minified */
+!function(e,n){"object"==typeof exports&&"undefined"!=typeof module?n(exports):"function"==typeof define&&define.amd?define(["exports"],n):n((e="undefined"!=typeof globalThis?globalThis:e||self).preact={})}(this,function(e){var n,t,r,i=0,o=[],s=[],a=e.__b,c=e.__r,l=e.__e,u=e.__c,f=e.__h,d=t=null;function h(e,n){for(var t in n)e[t]=n[t];return e}function p(e){var n=e.parentNode;n&&n.removeChild(e)}function v(e,t,r){var i,o,s,a={};for(s in t)"key"==s?i=t[s]:"ref"==s?o=t[s]:a[s]=t[s];if(arguments.length>2&&(a.children=arguments.length>3?n.call(arguments,2):r),"function"==typeof e&&null!=e.defaultProps)for(s in e.defaultProps)void 0===a[s]&&(a[s]=e.defaultProps[s]);return y(e,a,i,o,null)}function y(e,n,t,r,i){var o={type:e,props:n,key:t,ref:r,__k:null,__:null,__b:0,__e:null,__d:void 0,__c:null,constructor:void 0,__v:null==i?++f:i,__i:-1,__u:0};return null==e.__b&&(o.__v=v(e,n,t,r)),null!=a&&a(o),o}e.Fragment=function(e){return e.children};e.Component=function(e,n){this.props=e,this.context=n};e.Component.prototype.setState=function(e,n){var t;t=null!=this.__s&&this.__s!==this.state?this.__s:this.__s=h({},this.state),"function"==typeof e&&(e=e(h({},t),this.props)),e&&h(t,e),null!=e&&this.__v&&(n&&this.__h.push(n),R(this))};e.Component.prototype.forceUpdate=function(e){this.__v&&(this.__e=!0,e&&this.__h.push(e),R(this))};e.Component.prototype.render=e.Fragment;e.createRef=function(){return{current:null}};e.createContext=function(n){var t={__c:u="__cC"+i++,__:n,Consumer:function(e,n){return e.children(n)},Provider:function(e){var n,t;return this.getChildContext||(n=[],(t={})[u=this.props.createContext||u]=this,this.getChildContext=function(){return t},this.shouldComponentUpdate=function(e){this.props.value!==e.value&&(n.some(function(e){e.__e=!0,R(e)}),null!=this.__v&&R(this))},this.sub=function(e){n.push(e);var t=e.componentWillUnmount;e.componentWillUnmount=function(){n.splice(n.indexOf(e),1),t&&t.call(e)}}),e.children}};return t.__=t.Consumer.contextType=t};var m,g,_,b,k,C=0,w=[],x=e.__r||function(){},P=e.__e||function(e,n,t){if(e==m)throw m=null,e;t?t.__h.push(e):w.push(e),s[1]||(s[1]=setTimeout(O,0))},S=function(e,n){var t;for(w=o,o=[];w.length;)t=w.shift(),t.__d&&t.__d(t)};function O(){for(var e;e=o.shift();)if(e.__d)try{e.__d(e)}catch(n){m=n,setTimeout(function(){throw n})}S()}function R(e){e.__d||(e.__d=!0,o.push(e),s[1]||(s[1]=setTimeout(O,0)))}function E(e,n,t,r,i,o,s,a,c,l){var u,f,d,h,p=r&&r.__k||s,v=0,y=i.length||1;for(;v<y;v++){if(null==(h=i[v]||null)||"boolean"==typeof h)h=i[v]={type:null,props:{},key:null,ref:null,__k:null,__:e,__b:0,__e:null,__d:void 0,__c:null,constructor:void 0,__v:-1,__i:-1,__u:0};else if("string"==typeof h||"number"==typeof h||"bigint"==typeof h)h={type:null,props:{children:h+""},key:null,ref:null,__k:null,__:e,__b:0,__e:null,__d:void 0,__c:null,constructor:void 0,__v:-1,__i:-1,__u:0};else if(h.__b>0){var m=h.key,g=r&&r.__k&&r.__k.indexOf(h);null!=g&&-1!==g?r.__k[g]=null:(m=null==m?v:m,g=p.indexOf(h));h=y(h.type,h.props,m,h.ref,h.__v);h.__i=g}if(null==h.type&&h.props.children){var _=h.props.children;Array.isArray(_)||(_=[_]);for(var b=0;b<_.length;b++)null!=_[b]&&"boolean"!=typeof _[b]&&(i.push(_[b]),y++)}else{var k=h;h.__b=n.__b+1,h.__=e;var C=p[h.__i];null==C?C=-1:typeof C.type==typeof h.type&&C.key==h.key?C=r&&r.__k?r.__k.splice(h.__i,1)[0]||null:null:C=null;var w=null==C?-1:C.__i;if(w<0||w>=d||p[w]!==h){var x=null;if(null==C||C.__e==null||(x=document.createTextNode(""))||("object"==typeof h.type?x=document.createElement(h.type):"function"==typeof h.type&&(x=new h.type(h.props,h.context||{}))))null!=C&&p[C.__i]!==C&&(C=null);else x=C.__e}h.__i=w<0||w>=d?d++:w;var P=h,S=C;E(P,S,t,P,i,o,s,a,c,l)}}return e.__k=i,e}var F,j,L=[];function A(e,n){return e=e.__k=Array.isArray(e.__k)?e.__k:[e.__k],E(e,n,L,n.__k,null)}e.options=e;var M={};function N(e,n,t){return{props:h(h({},e.props),n),context:e.context,refs:e.refs||{},setState:e.setState.bind(e),forceUpdate:e.forceUpdate.bind(e)}}var B=e.__h=[];function T(){if(B.length)for(var e;e=B.shift();)e.__H&&e.__H.__h.forEach(q),e.__H&&e.__H.__h.forEach(G)}function q(e){e.__H&&e.t&&(e.__H=null,e.t())}function G(e){if(!e.__H)return;var n=e.t=e.t||function(){for(var t=e.__h,r=0;r<t.length;r++){var i=t[r];if(i.__H)try{i.__H=void 0,i.t&&i.t(),i.t=void 0}catch(o){}}e.__h=[]},t=n&&n();t&&t()}e.render=function(e,n,t){var r=n.__k;null==r||t&&t==r.__e?(r=y(e.Fragment,null,null,null,null),r.__k=[r.__k],A(r,n),T()):A(r,n),T()};e.hydrate=e.render;e.cloneElement=function(e,n,t){var r=h(h({},e.props),n),i=e.type;if(null==n.ref&&e.ref&&(r.ref=e.ref),arguments.length>2)r.children=arguments.length>3?n.call(arguments,2):t;if(null==n.key&&(r.key=e.key),"function"==typeof i&&null!=i.defaultProps)for(var o in i.defaultProps)void 0===r[o]&&(r[o]=i.defaultProps[o]);return y(i,r,r.key,r.ref,null)};e.createPortal=function(e,n){var t={__k:e,__e:n};return t};e.Children={map:function(e,n,t){if(null==e)return e;var r=[];return e.forEach(function(e,i){r.push(n.call(t,e,i))}),r},forEach:function(e,n,t){if(null==e)return;e.forEach(function(e,r){n.call(t,e,r)})},count:function(e){return e?e.length:0},only:function(e){if(1!==e.length)throw Error("Children.only");return e[0]},toArray:function(e){return e||[]}};e.toChildArray=function(e,n){return n=n||[],null==e||"boolean"==typeof e||(Array.isArray(e)?e.forEach(function(e){toChildArray(e,n)}):n.push(e)),n};e.__=function(e,n){};e.__b=function(e){if("function"!=typeof e.type)return;try{var n,t=e.props,r=e.type.defaultProps;if(null!=r)for(n in r)void 0===t[n]&&(t[n]=r[n])}catch(i){}};e.__r=function(e){x(e),++C;var n=e.__c;n.__H&&(q(n.__H.__h[e.__v]),G(n.__H.__h[e.__v]))};e.__e=function(e,n,t,r){if(n.__c)try{if(n.__c.__e){n.__c.__e(e,n,t,r);return}}catch(i){e=i}P(e,n,t,r)};e.__h=function(e,n,t){e.__H=e.__H||{__:[],__h:[...Array(n).fill(null).map(function(){return{}})]};var r=e.__H;if(!r.__[n]){r.__[n]={__H:r.__h,i:n,t:function(){var e=r.__[n].__H;e&&(e.forEach(q),e.forEach(G),e.__h=[])}};try{r.__h[n].__H=r.__[n]}catch(i){}}return r.__[n]};e.__c=function(e,n){if(!e.__c){var t=n;while(t=t.__)if(t.__c&&!t.__c.__P){e.__c=t.__c;break}}if(e.__c){e.__c.__e=!0;e.__c.__v=e;R(e.__c)}};var Z=e.__s=!0,H=e.__=!0,I=e.__b,Q=e.__r,J=e.__h,K=e.__e,V=e.__c,W=s;function X(n,t){return null==n?null:e.toChildArray(n.__k,t||[])}function Y(e,n){return{type:e.__k&&e.__k.length>0||e.type?e.type:null,props:h({},e.props),key:e.key,ref:e.ref,__k:e.__k,__:e.__,__b:e.__b,__e:e.__e,__d:e.__d,__c:e.__c,constructor:e.constructor,__v:n&&n.__v?n.__v:-1,__i:-1,__u:0}}var $=null;});
+
+/* preact/hooks 10.22.0 UMD */
+!function(e,n){"object"==typeof exports&&"undefined"!=typeof module?n(exports,require("preact")):"function"==typeof define&&define.amd?define(["exports","preact"],n):n(e.preactHooks={},e.preact)}(this,function(e,n){var t,r,u,i,o,f,c,a,l=0,s=[],p=n.__b,d=n.__r,h=n.__e,v=n.__c,y=n.__h;function b(e,n){return e==n||e!=e&&n!=n}function m(e){n.__h&&n.__h(e,t,r||0),r=0}function g(n,r){n.__H||(n.__H={__:[],__h:[]});var u=n.__H;if(u.__.length<=t){u.__.push({__H:u.__h,i:t,t:function(){var e=u.__[t].__H;e&&(e.forEach(S),e.forEach(k),e.__h=[])},__:{},context:r});try{u.__h[t]=r}catch(e){}}return u.__[t]}function _(e,n){var r=g(l,e,n);if(!r.__H)r.__H=n&&n.call?n():n;var u=r.__H;if(!b(u,n))r.__H=n;return r}function w(e){return m(1),_(e)}function x(e,n){m(3);var r=g(l,e);r.__H?b(r.__H[0],n[0])&&b(r.__H[1],n[1])||function(){r.__H=n;var e=r.__,u=function(){r.t&&(r.t(),r.t=void 0);var n=e();r.t="function"==typeof n?n:void 0};u&&r.t?r.t():u&&(r.t=u,r.__h.push(r))}():r.__H=n}function E(e,n){m(4);var r=g(l,e);if(!Array.isArray(r.__H)||!r.__H.every(function(e,n){return b(e,n?n[n.length-1]:r.__H[n])}))return r.__H=n,r.i=e()||null}function N(e,n){return m(2),E(e,n)}function P(){for(var e;e=s.shift();)if(e.__P)try{e.__H.__h.forEach(S),e.__H.__h.forEach(k),e.__H.__h=[]}catch(n){e.__H.__h=[],h(n,e.__v)}}function S(e){e.t&&(e.t(),e.t=void 0)}function k(e){var n=e.t=e.__H;n&&(e.t=void 0,n.forEach(S),n.forEach(k),e.__H=[])}n.__b=function(e){l=0,p&&p(e)};n.__r=function(e){d&&d(e),l=0;var n=(t=e.__c).__H;n&&(n.__h.forEach(S),n.__h.forEach(k),n.__h=[])};n.__e=function(e,n,t,r){h&&h(e,n,t,r)};n.__c=function(e,n){v&&v(e,n);var t=n.__c;if("function"==typeof t.shouldComponentUpdate)return;t.shouldComponentUpdate=i};n.__h=function(e,n,t){y&&y(e,n,t),r=t};var A=n.options;n.__=function(e,n){A.__&&A.__(e,n)};e.useState=w;e.useReducer=function(e,n,t){m(2);var u=g(l,e,n,t);if(!u.__H){var i=null!=t?t(n):n;u.__H=i,u.__=e;var o=u.__c=n.__c;u.dispatch=function(n){var t=o&&o.__s;if(null==t&&(t={}),!b(t[u.i]=u.__(t[u.i]||u.__H,n),u.__H))return;o&&(o.__s=t,R(o))};u.__h=n}return[u.__H,u.dispatch]};e.useEffect=x;e.useLayoutEffect=function(e,n){m(5),g(l,e).__H=[],x(e,n)};e.useRef=function(e){m(6);var n=g(l,e);return n.__H||(n.__H={current:e}),n.__H};e.useImperativeHandle=function(e,n,t){m(7),x(function(){return"function"==typeof e?e(n()):null!=e&&(e.current=n()),function(){"function"==typeof e?e(null):null!=e&&(e.current=null)}},null==t?t:[e].concat(t))};e.useMemo=N;e.useCallback=function(e,n){return N(function(){return e},n)};e.useContext=function(n){m(8);var t=g(l,n),r=n.__c;if(r){var u=r.__v;while(u=u.__)if(u.__c&&u.__c.__C==n){t.__c=u.__c;break}}return t.__c?(t.__=t.__c.context[n.__c],function(){t.__c&&(!b(t.__,t.__c.context[n.__c])&&(t.__=t.__c.context[n.__c],R(t.__c)))}):n.__};e.useDebugValue=function(){};e.useErrorBoundary=function(e){m(9);var n=w(void 0),t=n[1];return g(l,e).__H={componentDidCatch:function(n){t(n)}},[n[0],function(){t(void 0)}]};e.useId=function(){m(10);var e=g(l,{}),n=e.__c;if(!e.__H){var t=[];while(n=n.__){if(n.__H){var r=n.__H.__.filter(function(e){return e.__c&&e.__c.__C});t.unshift.apply(t,r)}}e.__H="P"+t.map(function(e){return e.i}).join("-")+"-"+t.length}return e.__H};R=function(e){e.__d||(e.__d=!0,s.push(e),P())};function R(e){e.__d||(e.__d=!0,s.push(e),setTimeout(P,0))}});
+</script>
+
+<script>
+// ── Aliases from global preact UMD build ──────────────────────────────────
+var h        = preact.h;
+var Fragment = preact.Fragment;
+var render   = preact.render;
+var useState   = preactHooks.useState;
+var useEffect  = preactHooks.useEffect;
+var useRef     = preactHooks.useRef;
+var useMemo    = preactHooks.useMemo;
+
+// ── Server RPC ────────────────────────────────────────────────────────────
+
+function rpc(fnName, params) {
+  return new Promise(function(resolve, reject) {
+    var runner = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(function(e) { reject(new Error(e.message || String(e))); });
+    runner[fnName](params);
+  });
+}
+
+// ── Relative time ─────────────────────────────────────────────────────────
+
+function timeSince(iso) {
+  if (!iso) return '';
+  var s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 30) return 'Synced just now';
+  if (s < 120) return 'Synced 1 min ago';
+  var m = Math.floor(s / 60);
+  if (m < 60) return 'Synced ' + m + ' min ago';
+  return 'Synced ' + Math.floor(m / 60) + 'h ago';
+}
+
+// ── Numbering ─────────────────────────────────────────────────────────────
+
+var ROMAN = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],
+             [50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+
+function toRoman(n) {
+  var r = '';
+  ROMAN.forEach(function(p) { while (n >= p[0]) { r += p[1]; n -= p[0]; } });
+  return r;
+}
+
+function toAlpha(n, up) {
+  var az = up ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' : 'abcdefghijklmnopqrstuvwxyz';
+  var r = '';
+  while (n > 0) { r = az[(n - 1) % 26] + r; n = Math.floor((n - 1) / 26); }
+  return r;
+}
+
+function seg(n, lv, scheme) {
+  if (scheme === 'numeric') return String(n);
+  if (scheme === 'legal')   return lv === 1 ? toRoman(n) : lv === 2 ? toAlpha(n, true) : String(n);
+  if (scheme === 'outline') return lv === 1 ? toAlpha(n, true) : lv === 2 ? String(n) : lv === 3 ? toAlpha(n, false) : String(n);
+  return String(n);
+}
+
+function computeNumbers(nodes, scheme) {
+  var out = {};
+  if (!scheme || scheme === 'none') return out;
+  var counters = {};
+  nodes.filter(function(n) { return n.status !== 'orphaned' && !n.isExcluded; })
+    .forEach(function(node) {
+      var lv = node.level;
+      Object.keys(counters).forEach(function(k) { if (+k > lv) delete counters[k]; });
+      counters[lv] = (counters[lv] || 0) + 1;
+      var parts = [];
+      for (var l = 1; l <= lv; l++) { if (counters[l]) parts.push(seg(counters[l], l, scheme)); }
+      out[node.id] = parts.join('.');
+    });
+  return out;
+}
+
+// ── Tree helpers ──────────────────────────────────────────────────────────
+
+function buildChildMap(nodes) {
+  var map = {};
+  nodes.forEach(function(n) {
+    if (n.isExcluded || n.status === 'orphaned') return;
+    var k = n.parentId || '__root__';
+    if (!map[k]) map[k] = [];
+    map[k].push(n);
+  });
+  Object.keys(map).forEach(function(k) {
+    map[k].sort(function(a, b) { return a.order - b.order; });
+  });
+  return map;
+}
+
+function isDescendant(nodes, candidateId, ancestorId) {
+  var byId = {};
+  nodes.forEach(function(n) { byId[n.id] = n; });
+  var cur = byId[candidateId];
+  while (cur && cur.parentId) {
+    if (cur.parentId === ancestorId) return true;
+    cur = byId[cur.parentId];
+  }
+  return false;
+}
+
+// ── Drag state (mutable object to avoid re-render on every mousemove) ─────
+
+var DRAG = { active: false, sourceId: null };
+
+// ── App ───────────────────────────────────────────────────────────────────
+
+function App() {
+  var initState = {
+    loading: true, syncing: false, error: null,
+    nodes: [], config: { numberingScheme: 'numeric' },
+    syncedAt: null
+  };
+  var stateRef = useRef(initState);
+  var setStateWrap = null; // set after first render
+
+  var _s = useState(initState);
+  var state = _s[0];
+  var _setState = _s[1];
+
+  function setState(updater) {
+    _setState(function(prev) {
+      var next = typeof updater === 'function' ? updater(prev) : updater;
+      stateRef.current = next;
+      return next;
+    });
+  }
+
+  var _search = useState('');
+  var search = _search[0]; var setSearch = _search[1];
+
+  var _ctxMenu = useState(null);
+  var ctxMenu = _ctxMenu[0]; var setCtxMenu = _ctxMenu[1];
+
+  var _editing = useState(null);
+  var editing = _editing[0]; var setEditing = _editing[1];
+
+  var _stalePop = useState(null);
+  var stalePop = _stalePop[0]; var setStalePop = _stalePop[1];
+
+  var _dragging = useState(null);
+  var dragging = _dragging[0]; var setDragging = _dragging[1];
+
+  var _dropTarget = useState(null);
+  var dropTarget = _dropTarget[0]; var setDropTarget = _dropTarget[1];
+
+  var _busy = useState(null);
+  var busyId = _busy[0]; var setBusy = _busy[1];
+
+  var _toast = useState(null);
+  var toast = _toast[0]; var setToast = _toast[1];
+  var toastTimer = useRef(null);
+
+  useEffect(function() { load(); }, []);
+
+  // Close overlays on outside click
+  useEffect(function() {
+    if (!ctxMenu && !stalePop) return;
+    function close() { setCtxMenu(null); setStalePop(null); }
+    document.addEventListener('mousedown', close);
+    return function() { document.removeEventListener('mousedown', close); };
+  }, [ctxMenu, stalePop]);
+
+  function toast_(msg, type) {
+    clearTimeout(toastTimer.current);
+    setToast({ msg: msg, type: type || 'ok' });
+    toastTimer.current = setTimeout(function() { setToast(null); }, 3200);
+  }
+
+  // ── Load / sync ──────────────────────────────────────────────────────────
+
+  function load() {
+    setState(function(s) { return h({}, s, { syncing: true, error: null }); });
+    rpc('getTree', null).then(function(res) {
+      setState(function(s) {
+        return h({}, s, {
+          loading: false, syncing: false,
+          nodes: res.nodes || [],
+          config: res.config || s.config,
+          syncedAt: res.syncedAt
+        });
+      });
+    }).catch(function(e) {
+      setState(function(s) { return h({}, s, { loading: false, syncing: false, error: e.message }); });
+    });
+  }
+
+  function forceSync() {
+    setState(function(s) { return h({}, s, { syncing: true }); });
+    rpc('forceSync', null).then(function(res) {
+      setState(function(s) {
+        return h({}, s, { syncing: false, nodes: res.nodes || [], syncedAt: res.syncedAt });
+      });
+    }).catch(function(e) {
+      toast_(e.message, 'error');
+      setState(function(s) { return h({}, s, { syncing: false }); });
+    });
+  }
+
+  // ── Generic mutation call ────────────────────────────────────────────────
+
+  function mutate(fn, params, msg) {
+    setBusy(params && (params.sourceId || params.nodeId) || '__any__');
+    rpc(fn, params).then(function(res) {
+      if (res && res.error) {
+        toast_(res.error, 'error');
+      } else {
+        setState(function(s) {
+          return h({}, s, {
+            nodes: (res && res.nodes) || s.nodes,
+            syncedAt: (res && res.syncedAt) || s.syncedAt
+          });
+        });
+        if (msg) toast_(msg);
+      }
+      setBusy(null);
+    }).catch(function(e) {
+      toast_(e.message, 'error');
+      setBusy(null);
+    });
+  }
+
+  // ── Scheme ───────────────────────────────────────────────────────────────
+
+  function onSchemeChange(scheme) {
+    setState(function(s) { return h({}, s, { config: h({}, s.config, { numberingScheme: scheme }) }); });
+    rpc('saveNumberingScheme', { scheme: scheme }).catch(function() {
+      toast_('Could not save scheme', 'error');
+    });
+  }
+
+  // ── Drag-and-drop ────────────────────────────────────────────────────────
+
+  function onDragStart(e, nodeId) {
+    DRAG.active = true;
+    DRAG.sourceId = nodeId;
+    e.dataTransfer.effectAllowed = 'move';
+    setDragging(nodeId);
+  }
+
+  function onDragOver(e, nodeId) {
+    if (!DRAG.active || DRAG.sourceId === nodeId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var rect = e.currentTarget.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var h = rect.height;
+    var pos = y < h * 0.28 ? 'before' : y > h * 0.72 ? 'after' : 'child';
+    setDropTarget({ nodeId: nodeId, position: pos });
+  }
+
+  function onDragLeave(e) {
+    // Only clear if leaving to outside the row
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setDropTarget(null);
+  }
+
+  function onDrop(e, nodeId) {
+    e.preventDefault();
+    var sourceId = DRAG.sourceId;
+    var dt = dropTarget;
+    DRAG.active = false; DRAG.sourceId = null;
+    setDragging(null); setDropTarget(null);
+    if (!sourceId || !dt) return;
+    if (sourceId === dt.nodeId) return;
+    if (isDescendant(stateRef.current.nodes, dt.nodeId, sourceId)) {
+      toast_('Cannot move into own descendant', 'error'); return;
+    }
+    mutate('moveSection', { sourceId: sourceId, targetId: dt.nodeId, position: dt.position }, 'Section moved');
+  }
+
+  function onDragEnd() {
+    DRAG.active = false; DRAG.sourceId = null;
+    setDragging(null); setDropTarget(null);
+  }
+
+  // ── Rename ───────────────────────────────────────────────────────────────
+
+  function onRenameConfirm(nodeId, val) {
+    setEditing(null);
+    if (!val || !val.trim()) return;
+    mutate('renameHeading', { nodeId: nodeId, newTitle: val.trim() }, 'Heading renamed');
+  }
+
+  // ── Jump to section ──────────────────────────────────────────────────────
+  // Apps Script's DocumentApp.setSelection / setCursor API is only available
+  // server-side. We call a server function that moves the cursor via
+  // DocumentApp, which causes the editor to scroll to that position.
+
+  function onJumpTo(nodeId) {
+    rpc('jumpToSection', { nodeId: nodeId }).catch(function(e) {
+      toast_('Navigation failed: ' + e.message, 'error');
+    });
+  }
+
+  // ── Context menu actions ─────────────────────────────────────────────────
+
+  function onEditLabel(nodeId) {
+    setCtxMenu(null);
+    var node = stateRef.current.nodes.find(function(n) { return n.id === nodeId; });
+    if (!node) return;
+    var label = window.prompt('TOC label (blank to use heading text):', node.labelOverride || node.title || '');
+    if (label === null) return;
+    mutate('setLabelOverride', { nodeId: nodeId, label: label.trim() || null }, 'Label updated');
+  }
+
+  function onToggleExpand(nodeId) {
+    setState(function(s) {
+      return h({}, s, {
+        nodes: s.nodes.map(function(n) {
+          return n.id === nodeId ? h({}, n, { isExpanded: !n.isExpanded }) : n;
+        })
+      });
+    });
+    // Persist silently
+    var cur = stateRef.current;
+    var node = cur.nodes.find(function(n) { return n.id === nodeId; });
+    if (!node) return;
+    var expanded = cur.nodes.filter(function(n) {
+      return n.id === nodeId ? !node.isExpanded : n.isExpanded;
+    }).map(function(n) { return n.id; });
+    rpc('saveUserPrefs', { prefs: { expandedNodeIds: expanded } }).catch(function() {});
+  }
+
+  // ── Derived values ────────────────────────────────────────────────────────
+
+  var numbers = useMemo(function() {
+    return computeNumbers(state.nodes, state.config.numberingScheme);
+  }, [state.nodes, state.config.numberingScheme]);
+
+  var childMap = useMemo(function() {
+    return buildChildMap(state.nodes);
+  }, [state.nodes]);
+
+  var searchLower = search.toLowerCase().trim();
+  var staleCount = state.nodes.filter(function(n) { return n.status === 'stale'; }).length;
+  var orphans = state.nodes.filter(function(n) { return n.status === 'orphaned'; });
+
+  var syncBarCls = 'sync-bar' + (staleCount > 0 || orphans.length > 0 ? ' warn' : '') + (state.error ? ' error' : '');
+  var syncBarText = state.syncing ? 'Syncing…'
+    : state.error ? 'Sync failed — click ↻'
+    : staleCount > 0 ? ('Up to date · ' + staleCount + ' stale')
+    : timeSince(state.syncedAt);
+
+  // ── Node renderer ─────────────────────────────────────────────────────────
+
+  function renderNode(node, depth) {
+    var hasKids = !!(childMap[node.id] && childMap[node.id].length > 0);
+    var isOrph = node.status === 'orphaned';
+    var isStale = node.status === 'stale';
+    var isBusy = busyId === node.id || busyId === '__any__';
+    var isEdit = editing === node.id;
+    var isDrag = dragging === node.id;
+    var dt = dropTarget && dropTarget.nodeId === node.id ? dropTarget : null;
+
+    var label = node.labelOverride || node.title;
+    if (searchLower && !label.toLowerCase().includes(searchLower)) {
+      if (!hasKids) return null;
+    }
+
+    var indent = depth * 14 + 6;
+
+    var rowCls = 'node-row'
+      + (isDrag ? ' dragging' : '')
+      + (dt ? ' drop-' + dt.position : '');
+
+    var labelCls = 'node-label'
+      + (isOrph ? ' orphaned' : '')
+      + (node.labelOverride ? ' override' : '');
+
+    return h(Fragment, { key: node.id },
+      h('div', {
+        class: rowCls,
+        style: { paddingLeft: indent + 'px' },
+        draggable: !isOrph && !isBusy,
+        onDragStart:  function(e) { onDragStart(e, node.id); },
+        onDragOver:   function(e) { onDragOver(e, node.id); },
+        onDragLeave:  onDragLeave,
+        onDrop:       function(e) { onDrop(e, node.id); },
+        onDragEnd:    onDragEnd
+      },
+        !isOrph && h('span', { class: 'drag-handle' }, '⠿'),
+
+        h('span', {
+          class: 'toggle ' + (hasKids ? 'has-children' : 'leaf'),
+          onClick: hasKids ? function() { onToggleExpand(node.id); } : null
+        }, hasKids ? (node.isExpanded ? '▾' : '▸') : ''),
+
+        isStale && h('span', {
+          class: 'status-icon stale',
+          title: 'Heading changed in document',
+          onClick: function(e) {
+            e.stopPropagation();
+            var r = e.target.getBoundingClientRect();
+            setStalePop({ node: node, x: r.left, y: r.bottom + 4 });
+          }
+        }, '⚠'),
+
+        isOrph && h('span', {
+          class: 'status-icon orphaned',
+          title: 'Heading deleted from document'
+        }, '⚠'),
+
+        numbers[node.id] && h('span', { class: 'node-num' }, numbers[node.id]),
+
+        isEdit
+          ? h(EditInput, {
+              key: 'edit-' + node.id,
+              init: label,
+              onConfirm: function(v) { onRenameConfirm(node.id, v); },
+              onCancel: function() { setEditing(null); }
+            })
+          : h('span', {
+              class: labelCls,
+              title: label,
+              onClick: function() { onJumpTo(node.id); },
+              onDblClick: function() { if (!isOrph && !isBusy) setEditing(node.id); }
+            }, label),
+
+        isBusy && h('span', { class: 'busy-dot' }),
+
+        !isBusy && h('button', {
+          class: 'options-btn',
+          title: 'Options',
+          onClick: function(e) {
+            e.stopPropagation();
+            var r = e.target.getBoundingClientRect();
+            setCtxMenu({ node: node, x: r.left, y: r.bottom + 2 });
+          }
+        }, '⋮')
+      ),
+
+      hasKids && node.isExpanded
+        ? childMap[node.id].map(function(c) { return renderNode(c, depth + 1); })
+        : null
+    );
+  }
+
+  var rootNodes = childMap['__root__'] || [];
+
+  return h(Fragment, null,
+
+    // ── Header
+    h('div', { class: 'header' },
+      h('span', { class: 'header-title' }, 'Mostly Organised'),
+      h('button', {
+        class: 'icon-btn', title: 'Refresh',
+        onClick: forceSync
+      },
+        h('svg', { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'currentColor',
+            class: state.syncing ? 'spin' : '' },
+          h('path', { d: 'M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z' })
+        )
+      )
+    ),
+
+    // ── Sync bar
+    h('div', { class: syncBarCls }, syncBarText),
+
+    // ── Toolbar
+    h('div', { class: 'toolbar' },
+      h('select', {
+        class: 'scheme-select',
+        value: state.config.numberingScheme,
+        onChange: function(e) { onSchemeChange(e.target.value); }
+      },
+        h('option', { value: 'none' },    'No numbers'),
+        h('option', { value: 'numeric' }, '1.1.1'),
+        h('option', { value: 'legal' },   'I.A.1'),
+        h('option', { value: 'outline' }, 'A.1.a')
+      ),
+      h('input', {
+        class: 'search-input', type: 'text', placeholder: 'Search…',
+        value: search,
+        onInput: function(e) { setSearch(e.target.value); }
+      })
+    ),
+
+    // ── Tree
+    h('div', { class: 'tree' },
+      state.loading
+        ? h('div', { class: 'empty-state' }, 'Loading…')
+        : state.error
+        ? h('div', { class: 'empty-state' },
+            state.error,
+            h('br'), h('br'),
+            h('button', { class: 'btn', style: { margin: '0 auto', display: 'block' }, onClick: load }, 'Retry')
+          )
+        : rootNodes.length === 0
+        ? h('div', { class: 'empty-state' }, 'No headings found.\nApply Heading 1–6 styles in your document to build a TOC.')
+        : rootNodes.map(function(n) { return renderNode(n, 0); }),
+
+      orphans.length > 0 && h(Fragment, null,
+        h('div', { class: 'orphan-divider' }),
+        orphans.map(function(n) { return renderNode(n, 0); })
+      )
+    ),
+
+    // ── Context menu
+    ctxMenu && h(CtxMenu, {
+      node: ctxMenu.node, x: ctxMenu.x, y: ctxMenu.y,
+      onClose: function() { setCtxMenu(null); },
+      onEditLabel: onEditLabel,
+      onPromote:  function(id) { setCtxMenu(null); mutate('changeHeadingLevel', { nodeId: id, delta: -1 }, 'Heading promoted'); },
+      onDemote:   function(id) { setCtxMenu(null); mutate('changeHeadingLevel', { nodeId: id, delta:  1 }, 'Heading demoted'); },
+      onExclude:  function(id) { setCtxMenu(null); mutate('setExcluded', { nodeId: id, excluded: true }); },
+      onOrphan:   function(id) { setCtxMenu(null); mutate('removeOrphan', { nodeId: id }); }
+    }),
+
+    // ── Stale popover
+    stalePop && h(StalePop, {
+      node: stalePop.node, x: stalePop.x, y: stalePop.y,
+      onClose: function() { setStalePop(null); },
+      onResolve: function(id, res) { setStalePop(null); mutate('resolveStale', { nodeId: id, resolution: res }); }
+    }),
+
+    // ── Toast
+    toast && h('div', { class: 'toast show' + (toast.type === 'error' ? ' error' : '') }, toast.msg)
+  );
+}
+
+// ── EditInput ─────────────────────────────────────────────────────────────
+
+function EditInput(props) {
+  var _v = useState(props.init);
+  var val = _v[0]; var setVal = _v[1];
+  var ref = useRef(null);
+  useEffect(function() {
+    if (ref.current) { ref.current.focus(); ref.current.select(); }
+  }, []);
+  return h('input', {
+    ref: ref,
+    class: 'label-input',
+    value: val,
+    onInput: function(e) { setVal(e.target.value); },
+    onKeyDown: function(e) {
+      if (e.key === 'Enter')  { e.preventDefault(); props.onConfirm(val); }
+      if (e.key === 'Escape') props.onCancel();
+    },
+    onBlur: function() { props.onConfirm(val); }
+  });
+}
+
+// ── Context menu ──────────────────────────────────────────────────────────
+
+function CtxMenu(props) {
+  var node = props.node;
+  var isOrph = node.status === 'orphaned';
+  return h('div', {
+    class: 'ctx-menu',
+    style: { left: props.x + 'px', top: props.y + 'px' },
+    onMouseDown: function(e) { e.stopPropagation(); }
+  },
+    !isOrph && h(Fragment, null,
+      h('div', { class: 'ctx-item', onClick: function() { props.onEditLabel(node.id); } }, 'Edit TOC label'),
+      h('div', { class: 'ctx-sep' }),
+      h('div', {
+        class: 'ctx-item' + (node.level <= 1 ? ' off' : ''),
+        onClick: node.level > 1 ? function() { props.onPromote(node.id); } : null
+      }, 'Promote heading'),
+      h('div', {
+        class: 'ctx-item' + (node.level >= 6 ? ' off' : ''),
+        onClick: node.level < 6 ? function() { props.onDemote(node.id); } : null
+      }, 'Demote heading'),
+      h('div', { class: 'ctx-sep' }),
+      h('div', { class: 'ctx-item', onClick: function() { props.onExclude(node.id); } }, 'Exclude from TOC')
+    ),
+    isOrph && h('div', { class: 'ctx-item', onClick: function() { props.onOrphan(node.id); } }, 'Remove orphan')
+  );
+}
+
+// ── Stale popover ─────────────────────────────────────────────────────────
+
+function StalePop(props) {
+  var node = props.node;
+  var safeX = Math.min(props.x, window.innerWidth - 250);
+  return h('div', {
+    class: 'stale-pop',
+    style: { left: safeX + 'px', top: props.y + 'px' },
+    onMouseDown: function(e) { e.stopPropagation(); }
+  },
+    h('p', null, 'Heading was changed in the document.'),
+    h('p', null, h('strong', null, 'In document: '), node.title),
+    node.syncedTitle && node.syncedTitle !== node.title &&
+      h('p', null, h('strong', null, 'Last known: '), node.syncedTitle),
+    h('div', { class: 'stale-actions' },
+      h('button', { class: 'btn primary', onClick: function() { props.onResolve(node.id, 'accept'); } }, 'Accept'),
+      node.syncedTitle && node.syncedTitle !== node.title &&
+        h('button', { class: 'btn', onClick: function() { props.onResolve(node.id, 'restore'); } }, 'Restore'),
+      h('button', { class: 'btn', onClick: props.onClose }, 'Dismiss')
+    )
+  );
+}
+
+// ── Mount ──────────────────────────────────────────────────────────────────
+
+render(h(App, null), document.getElementById('root'));
+</script>
+</body>
+</html>
