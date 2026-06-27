@@ -106,13 +106,10 @@ var NumberingService = (function () {
         return String(n);
 
       case 'outline':
-        // Level 1: ALPHA, Level 2: numeric, Level 3: alpha, Level 4: numeric, ...
-        if (level % 2 === 1) return _toAlphaUpper(Math.ceil(level / 2) === 1 ? n : n);
         if (level === 1) return _toAlphaUpper(n);
         if (level === 2) return String(n);
         if (level === 3) return _toAlphaLower(n);
-        if (level === 4) return String(n);
-        return _toAlphaLower(n);
+        return String(n);
 
       default:
         return String(n);

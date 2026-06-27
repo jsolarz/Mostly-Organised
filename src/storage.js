@@ -54,6 +54,7 @@ var StorageService = (function () {
         numberingScheme: 'numeric',
         excludedHeadingIds: [],
         labelOverrides: {},
+        baseTitles: {},
         lastSyncedAt: null,
         version: 0
       };

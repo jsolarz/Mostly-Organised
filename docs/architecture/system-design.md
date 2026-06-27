@@ -68,7 +68,8 @@ A single HTML page served by Apps Script's `HtmlService`. Runs in an iframe insi
 - Render the TOC tree (vanilla JS or Preact — see ADR-003)
 - Handle drag-and-drop interactions
 - Call server functions via `google.script.run`
-- Show sync status, stale/orphan indicators, numbering
+- Show sync status, stale/orphan indicators, numbering, validation panel
+- Auto-sync: polls every 30 seconds when visible; compares tree hash to avoid unnecessary re-renders
 - Store no state beyond render state; always fetch from server on open
 
 **Communication pattern:**
@@ -90,7 +91,7 @@ Runs in Google's V8 environment. All functions callable from the sidebar are dec
 **Module structure:**
 ```
 Code.gs           — entry points: onOpen(), doGet(), menu registration
-sync.gs           — SyncEngine: parse(), reconcile(), getTree()
+sync.gs           — SyncEngine: parse(), reconcile(), getTree(), refreshToc(), applyNumberingInDocument()
 mutations.gs      — MutationExecutor: moveSection(), renameHeading(), promoteHeading()
 storage.gs        — StorageService: read/write DocumentProperties, UserProperties, ScriptCache
 numbering.gs      — NumberingService: compute display numbers for a tree
@@ -145,6 +146,8 @@ StorageService.getCache("mo:tree:{docId}")
                    → extract headings
                    → build TocNode[]
                    → reconcile with DocumentProperties
+                   → apply numbering to document heading text
+                   → refresh native Google Docs TOC
                    → StorageService.setCache(...)
                    → return TocNode[]
        │
@@ -227,7 +230,7 @@ Developer machine
 | Constraint | Mitigation |
 |---|---|
 | No persistent server — Apps Script is stateless between calls | ScriptCache + Properties service as state layer |
-| No real-time push from server to sidebar | Pull-on-demand; manual refresh button always available |
+| Server cannot push to sidebar unprompted | Sidebar polls every 30s; manual refresh button always available |
 | batchUpdate indices are order-sensitive | Pre-compute request order before building request array (see sync-engine.md) |
 | headingIds reset after paragraph delete/insert | Post-move reconciliation by title + position proximity |
 | DocumentProperties 500 KB total limit | Store only IDs and overrides, never full node objects |

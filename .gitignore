@@ -11,6 +11,9 @@ dist/
 # clasp OAuth tokens
 .clasprc.json
 
+# Script ID (per-environment)
+.clasp.json
+
 # AI agent runtime files
 .ai/
 .claude/

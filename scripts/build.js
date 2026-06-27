@@ -30,9 +30,7 @@ fs.copyFileSync(
   path.join(DIST, 'appsscript.json')
 );
 
-// Process sidebar.html
-// In production, you would replace the esm.sh import with inlined Preact.
-// For now we copy as-is (suitable for development deployments).
+// Copy sidebar.html (Preact UMD is already inlined to satisfy CSP)
 fs.copyFileSync(path.join(SRC, 'sidebar.html'), path.join(DIST, 'sidebar.html'));
 console.log('copied sidebar.html');
 

@@ -17,7 +17,7 @@ The native Google Docs table of contents is read-only scaffolding. You cannot re
 **Core jobs this product does:**
 1. Surface the document's heading hierarchy as a manipulable tree
 2. Reorder sections by dragging — moving the TOC entry moves the document content
-3. Number sections with a customizable scheme, without polluting the document
+3. Number sections with a customizable scheme, injected into heading text
 4. Promote and demote headings (H2→H1, H3→H2, etc.) from the sidebar
 
 ---
@@ -31,18 +31,19 @@ The native Google Docs table of contents is read-only scaffolding. You cannot re
 | R-01 | Parse all headings (H1–H6) into a synchronized TOC tree | Must |
 | R-02 | Display TOC in a persistent sidebar with expand/collapse | Must |
 | R-03 | Drag-and-drop to reorder sections; document content moves | Must |
-| R-04 | Display-only section numbering with configurable scheme | Must |
+| R-04 | Section numbering with configurable scheme (injected into document text) | Must |
 | R-05 | Promote/demote heading level from sidebar | Must |
 | R-06 | Rename a heading from the sidebar (patches document text) | Must |
 | R-07 | Jump to section on click | Must |
 | R-08 | Exclude individual headings from TOC display | Should |
 | R-09 | Manual TOC label override (TOC shows different text than heading) | Should |
 | R-10 | Stale/orphan detection when heading is deleted or changed outside sidebar | Should |
-| R-11 | Sync status indicator with manual refresh | Must |
+| R-11 | Sync status indicator with auto-sync and manual refresh | Must |
+| R-12 | Document structure validation panel (heading hierarchy errors) | Should |
+| R-13 | Native Google Docs TOC auto-refresh on sync | Must |
 
 ### Out of scope (v1)
 
-- Injecting numbering into document heading text (display-only is the v1 contract; see ADR-002)
 - Multi-document TOC
 - Section-level permissions or approvals
 - AI-generated summaries or semantic search
@@ -87,11 +88,15 @@ The native Google Docs table of contents is read-only scaffolding. You cannot re
 
 ### R-04: Section Numbering
 
-- Numbering is display-only in the sidebar; the document heading text is never modified
+- Numbering is injected into the document heading text as a prefix, e.g. `1.  Introduction`, `1.1.  Background`
+- Number prefix is separated from the heading text by two spaces (`  `) for reliable detection/stripping on re-parse
 - Supported schemes: `numeric` (1.1.1), `legal` (I.A.1), `outline` (A.1.a)
 - Numbering scheme is stored per-document in `DocumentProperties`
 - Excluded nodes (R-08) are skipped in numbering sequence — subsequent nodes renumber
 - Numbering recomputes entirely from tree structure at render time; no stored number values
+- The original heading text (without prefix) is stored as `baseTitle` in config for reliable stripping when numbering changes or is disabled
+- Setting the scheme to `none` strips all numbering prefixes from heading text, restoring the original titles
+- Document text updates are issued as a single `batchUpdate` per sync (atomic undo)
 
 ### R-05: Promote / Demote
 
@@ -113,8 +118,9 @@ The native Google Docs table of contents is read-only scaffolding. You cannot re
 ### R-07: Jump to Section
 
 - Single-click on a TOC node scrolls the document to that heading
-- Implementation: navigate to the named range anchor attached to that heading
-- If the named range has been deleted (orphaned node): show warning, offer to re-sync
+- Implementation: server looks up the heading by `startIndex` and calls `DocumentApp.setSelection()` to move the cursor
+- O(1) direct element access via cached `startIndex`, no full document parse required
+- Fallback: if cached index is stale, re-resolve via ScriptCache
 
 ### R-08: Exclude from TOC
 
@@ -142,9 +148,33 @@ The native Google Docs table of contents is read-only scaffolding. You cannot re
 ### R-11: Sync
 
 - Sync runs automatically on: sidebar open, after every sidebar-initiated document mutation
+- Auto-sync polling: sidebar polls every 30 seconds when visible; stops when sidebar loses focus or is minimized
+- Polling compares tree hash to avoid unnecessary re-renders
 - Manual refresh button always available
 - Sync status shows: "Synced just now" / "Synced 3 min ago" / "Syncing..." / "Out of sync — click to refresh"
-- No background polling in v1 (Apps Script time-based triggers add latency and complexity)
+
+### R-12: Document Structure Validation
+
+- Validate the heading tree against common accessibility and style rules
+- Display errors/warnings in a collapsible panel below the toolbar, separate from the TOC tree
+- Each error is clickable: jumps to the offending heading in the document
+- Errors are advisory only — no auto-fix; the user resolves issues manually in the document
+- Re-validates on every sync
+
+**Error types:**
+
+| Code | Type | Description |
+|---|---|---|
+| E-01 | Error | Skipped heading level — e.g., H1 → H3 without H2 |
+| E-02 | Warning | Document has no Heading 1 |
+| E-03 | Warning | Empty heading — heading style applied to blank text |
+
+### R-13: Native TOC Auto-Refresh
+
+- After every sync, the native Google Docs TOC (Insert → Table of contents) is refreshed
+- Implementation: find existing `tableOfContents` element, delete it, re-insert via `insertTableOfContents` at the same position
+- Refresh happens silently in the background during `getTree()`; no user action required
+- If no native TOC exists in the document, this step is skipped
 
 ---
 
@@ -164,7 +194,7 @@ The native Google Docs table of contents is read-only scaffolding. You cannot re
 ## Constraints
 
 - **Apps Script runtime**: No Node.js, no npm packages, no persistent server. All logic runs in Google's V8 environment.
-- **No real-time push**: Sidebar can call server functions; server cannot push to sidebar unprompted. Sync is pull-based.
+- **Pull-based with polling**: Server cannot push to sidebar unprompted. Sidebar polls for changes every 30 seconds.
 - **Single `batchUpdate`**: Programmatic edits that span multiple API calls each create separate undo history entries. All document mutations must be batched.
 - **`DocumentProperties` is shared**: All editors of a document see the same stored TOC configuration. Per-user state (UI preferences) goes in `UserProperties`.
 - **`headingId` stability**: Google's `headingId` values survive minor edits but are reset on paragraph deletion/recreation. This is the key reason orphan detection is required.

@@ -171,20 +171,49 @@ for each heading in subtree (including root):
 
 Issued as a single `batchUpdate`.
 
+### Operation: Refresh Native TOC
+
+After every sync, the native Google Docs TOC is refreshed:
+
+```
+1. Find the tableOfContents element in body.content
+2. Delete it: deleteContentRange [tocIndex, tocIndex + 1]
+3. Re-insert: insertTableOfContents { location: { index: tocIndex } }
+4. Issue as single batchUpdate
+```
+
+If no native TOC exists in the document, this step is skipped.
+
+### Operation: Document Text Numbering
+
+Numbering is injected into heading text as a prefix:
+
+```
+1. Compute numbers from tree structure via NumberingService.compute()
+2. For each heading:
+   a. Derive clean title from stored baseTitles config
+   b. Compute target = prefix + clean (e.g., "1.1  Background")
+   c. Find heading in document via text + level matching
+   d. Insert new prefix at paragraph start (preserves formatting)
+   e. Delete old prefix (shifted right by new prefix length)
+3. Process headings bottom-to-top to avoid index shifting
+4. Store baseTitles in DocumentProperties for reliable stripping
+```
+
+The double-space separator (`  `) between prefix and title allows reliable detection and stripping on re-parse.
+
 ---
 
-## Named Range Management (Jump-to-Section)
+## Jump to Section
 
-For reliable jump-to-section, each `TocNode` gets a named range bookmark created by the add-on:
+Each `TocNode` stores the element's `startIndex` from the document body. On click:
 
-```
-namedRange = document.addNamedRange(
-  "mo_" + headingId,
-  document.getRange(startIndex, startIndex + 1)
-)
-```
+1. Client sends `{ nodeId, startIndex }` to server
+2. Server calls `body.getChild(startIndex)` for O(1) direct access
+3. Server calls `DocumentApp.setSelection()` to scroll to the heading
+4. Fallback: if index is stale, re-resolve from ScriptCache by nodeId
 
-These survive the section heading being renamed (unlike `getHeadingById` which is fragile). After a section move, named ranges are deleted and recreated at the new indices.
+No named ranges are created. The `startIndex` is refreshed on every sync.
 
 ---
 
@@ -215,3 +244,26 @@ On cache miss: always re-parse from live document
 | headingId reconciliation ambiguous (>1 match) | Show "Could not restore label — please re-apply" |
 | Section boundary calculation crosses document end | Clamp to `document.body.length - 1` |
 | Move would create >H6 child | Block the drop; show "Cannot demote past Heading 6" |
+
+---
+
+## Auto-Sync Polling
+
+The sidebar polls the server every 30 seconds to detect document changes made outside the sidebar:
+
+```
+setInterval(function() {
+  if (document.hidden) return;  // skip if sidebar is minimized
+  rpc('getTree', null).then(function(res) {
+    var hash = hashNodes(res.nodes);
+    if (hash !== lastHash) {
+      // Tree changed — update state and re-render
+      setState(res);
+      lastHash = hash;
+    }
+    runValidation(res.nodes);
+  });
+}, 30000);
+```
+
+Polling stops when the sidebar loses focus or is minimized (`document.hidden` check). The tree hash is a simple string concatenation of node IDs + titles + levels — cheap to compute and compare. If the hash hasn't changed, no re-render occurs.

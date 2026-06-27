@@ -15,9 +15,11 @@ timestamp: 2026-06-17T00:00:00Z
 ```
 ┌─────────────────────────────────┐
 │ Mostly Organised                  ⟳  ⚙     │  ← header: title, sync, settings
-│ Synced just now                 │  ← sync status line
+│ Synced just now                 │  ← sync status line (auto-syncs every 30s)
 ├─────────────────────────────────┤
 │ Numeric ▾   [Search…]           │  ← numbering scheme selector, search
+├─────────────────────────────────┤
+│ Structure                    ▸  │  ← collapsible validation panel
 ├─────────────────────────────────┤
 │                                 │
 │ ▼ 1 Introduction            ⋮  │  ← root node, expanded, options
@@ -33,6 +35,8 @@ timestamp: 2026-06-17T00:00:00Z
 │                                 │
 └─────────────────────────────────┘
 ```
+
+When a validation error is detected, the Structure panel expands and shows the error count badge. Clicking a validation error jumps to the heading in the document.
 
 ---
 
@@ -128,14 +132,16 @@ click ⚠ on stale node
 
 ## Numbering Scheme Display
 
-Numbers are rendered in the sidebar only. They are muted (lower contrast) to keep the label as the primary reading target.
+Numbers are injected into the document heading text as a prefix, separated by double space (`  `). The sidebar shows the heading text as-is (including the number prefix). The separate number column in the sidebar is hidden when numbering is active.
 
-| Scheme | Example |
+| Scheme | Document heading text |
 |---|---|
 | None | Introduction |
-| Numeric | **1.2.3** Introduction |
-| Legal | **I.A.3** Introduction |
-| Outline | **A.1.c** Introduction |
+| Numeric | 1.2.3  Introduction |
+| Legal | I.A.3  Introduction |
+| Outline | A.1.c  Introduction |
+
+The original heading text (without number prefix) is stored as `baseTitle` in config for reliable stripping when numbering changes or is disabled.
 
 Excluded nodes are skipped; subsequent nodes renumber. Example with node 1.2 excluded:
 
@@ -155,6 +161,7 @@ Excluded nodes are skipped; subsequent nodes renumber. Example with node 1.2 exc
 | Synced | "Synced just now" (fades to gray after 60s) |
 | Synced N ago | "Synced 3 min ago" |
 | Syncing | Spinner + "Syncing…" |
+| Auto-syncing | Spinner + "Syncing…" (poll every 30s) |
 | Stale nodes detected | "Up to date · 2 stale" (amber) |
 | Error | "Sync failed — click ⟳" (red) |
 

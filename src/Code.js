@@ -67,35 +67,58 @@ function forceSync() {
   return SyncEngine.getTree();
 }
 
+function validateStructure() {
+  return SyncEngine.validateStructure();
+}
+
 function jumpToSection(params) {
   // Move the document cursor to the target heading paragraph.
+  // Uses startIndex for O(1) direct access — avoids parsing the entire document.
   // DocumentApp.setSelection() is only available server-side; calling this
   // from the sidebar via google.script.run triggers a scroll in the editor.
-  var treeResult = SyncEngine.getTree();
-  var node = null;
-  for (var i = 0; i < treeResult.nodes.length; i++) {
-    if (treeResult.nodes[i].id === params.nodeId) { node = treeResult.nodes[i]; break; }
-  }
-  if (!node || node.status === 'orphaned') return { ok: false };
+  if (!params || !params.nodeId) return { ok: false };
 
   try {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
-    // Walk body children to find the heading paragraph matching this node
-    var numChildren = body.getNumChildren();
-    for (var j = 0; j < numChildren; j++) {
-      var el = body.getChild(j);
-      if (el.getType() !== DocumentApp.ElementType.PARAGRAPH) continue;
-      var para = el.asParagraph();
-      if (para.getText() === node.title) {
+    var idx = params.startIndex;
+
+    // Direct access via cached index (fast path)
+    if (idx != null && idx >= 0 && idx < body.getNumChildren()) {
+      var el = body.getChild(idx);
+      if (el.getType() === DocumentApp.ElementType.PARAGRAPH) {
+        var para = el.asParagraph();
         var rangeBuilder = doc.newRange();
         rangeBuilder.addElement(para);
         doc.setSelection(rangeBuilder.build());
         return { ok: true };
       }
     }
+
+    // Fallback: look up node from cache and walk by title
+    var cached = StorageService.getTreeCache();
+    if (cached) {
+      for (var i = 0; i < cached.length; i++) {
+        if (cached[i].id === params.nodeId) {
+          var fallbackIdx = cached[i].startIndex;
+          if (fallbackIdx != null && fallbackIdx >= 0 && fallbackIdx < body.getNumChildren()) {
+            var fel = body.getChild(fallbackIdx);
+            if (fel.getType() === DocumentApp.ElementType.PARAGRAPH) {
+              var fpara = fel.asParagraph();
+              var frb = doc.newRange();
+              frb.addElement(fpara);
+              doc.setSelection(frb.build());
+              return { ok: true };
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    return { ok: false };
   } catch (e) {
     Logger.log('mostly-organised: jumpToSection failed — ' + e.message);
+    return { ok: false };
   }
-  return { ok: false };
 }

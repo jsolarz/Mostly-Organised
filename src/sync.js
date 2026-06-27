@@ -127,7 +127,6 @@ var SyncEngine = (function () {
         documentId: docId,
         parentId: parentId,
         level: r.level,
-        order: i,
         title: r.title,
         labelOverride: null,
         startIndex: r.startIndex,
@@ -222,6 +221,12 @@ var SyncEngine = (function () {
     reconcile(freshNodes, config, userPrefs);
     var nodes = detectDrift(freshNodes, cached);
 
+    // Apply numbering to document heading text
+    nodes = applyNumberingInDocument(nodes, config.numberingScheme);
+
+    // Refresh native Google Docs TOC to reflect heading changes
+    refreshToc();
+
     StorageService.setTreeCache(nodes);
     StorageService.touchLastSynced();
 
@@ -238,6 +243,182 @@ var SyncEngine = (function () {
     return getTree();
   }
 
+  // ── Structure validation ───────────────────────────────────────────────────
+
+  function validateStructure() {
+    var tree = getTree();
+    var nodes = tree.nodes;
+    var errors = [];
+
+    // Build parent lookup
+    var byId = {};
+    nodes.forEach(function (n) { byId[n.id] = n; });
+
+    // E-02: Missing H1
+    var hasH1 = nodes.some(function (n) { return n.level === 1; });
+    if (!hasH1) {
+      errors.push({ code: 'E-02', type: 'warning', message: 'Start with a Heading 1 to establish the top-level structure', nodeId: null });
+    }
+
+    // E-01: Skipped levels
+    nodes.forEach(function (node) {
+      if (!node.parentId || !byId[node.parentId]) return;
+      var parent = byId[node.parentId];
+      if (node.level - parent.level > 1) {
+        errors.push({ code: 'E-01', type: 'error', message: 'H' + parent.level + ' "' + parent.title + '" is followed by H' + node.level + ' "' + node.title + '" — H' + (parent.level + 1) + ' is missing', nodeId: node.id });
+      }
+    });
+
+    // E-04: Empty headings
+    nodes.forEach(function (node) {
+      if (!node.title || !node.title.trim()) {
+        errors.push({ code: 'E-04', type: 'warning', message: 'Empty heading — delete it or add heading text', nodeId: node.id });
+      }
+    });
+
+    return { errors: errors, computedAt: new Date().toISOString() };
+  }
+
+  // ── Document text numbering ────────────────────────────────────────────────
+
+  function applyNumberingInDocument(nodes, scheme) {
+    var config = StorageService.getConfig();
+    var baseTitles = config.baseTitles || {};
+    var numbers = NumberingService.compute(nodes, scheme);
+    var docId = DocumentApp.getActiveDocument().getId();
+
+    // Fetch document content to resolve character offsets by text matching
+    var docData = Docs.Documents.get(docId, { fields: 'body.content' });
+    var content = (docData.body && docData.body.content) || [];
+    var restHeadings = [];
+    content.forEach(function (el) {
+      if (!el.paragraph) return;
+      var para = el.paragraph;
+      var style = para.paragraphStyle && para.paragraphStyle.namedStyleType;
+      if (!style || style.indexOf('HEADING_') !== 0) return;
+      var level = parseInt(style.replace('HEADING_', ''), 10);
+      if (isNaN(level)) return;
+      var text = '';
+      (para.elements || []).forEach(function (te) {
+        if (te.textRun) text += (te.textRun.content || '').replace(/\n$/, '');
+      });
+      restHeadings.push({ level: level, title: text, start: el.startIndex, end: el.endIndex });
+    });
+
+    var pending = []; // { nodeId, prefix, clean, range }
+
+    nodes.forEach(function (node) {
+      if (node.status === 'orphaned') return;
+      var current = node.title;
+      var storedBase = baseTitles[node.id];
+      var num = numbers[node.id];
+
+      // Derive clean title
+      var clean;
+      if (storedBase) {
+        var expected = num ? num + '  ' + storedBase : storedBase;
+        if (current === expected || current === storedBase) {
+          clean = storedBase;
+        } else {
+          var dsi = current.indexOf('  ');
+          clean = dsi > 0 ? current.substring(dsi + 2).trim() : current.trim();
+        }
+      } else {
+        clean = current;
+      }
+
+      var prefix = num ? num + '  ' : '';
+      var target = prefix + clean;
+      if (target !== current) {
+        // Find the matching heading in REST data by current text + level
+        var matchedRange = null;
+        for (var ri = 0; ri < restHeadings.length; ri++) {
+          var rh = restHeadings[ri];
+          if (rh.level === node.level && rh.title === current) {
+            matchedRange = { start: rh.start, end: rh.end };
+            restHeadings.splice(ri, 1); // consume it
+            break;
+          }
+        }
+        if (matchedRange) {
+          pending.push({ nodeId: node.id, prefix: prefix, clean: clean, range: matchedRange, oldTitle: current });
+        }
+      }
+      node.title = target;
+      baseTitles[node.id] = clean;
+    });
+
+    if (pending.length > 0) {
+      // Process bottom-to-top so insertions don't shift indices of earlier headings
+      pending.sort(function (a, b) { return b.range.start - a.range.start; });
+
+      var requests = [];
+      pending.forEach(function (p) {
+        var range = p.range;
+
+        // Step 1: insert new prefix at paragraph start
+        // Pushes existing content right, preserving formatting of all text runs
+        if (p.prefix) {
+          requests.push({
+            insertText: { text: p.prefix, location: { index: range.start } }
+          });
+        }
+
+        // Step 2: delete old prefix (now shifted right by new prefix length)
+        var oldPrefixLen = p.oldTitle.length - p.clean.length;
+        if (oldPrefixLen > 0) {
+          var shift = p.prefix.length;
+          var delStart = range.start + shift;
+          var delEnd = Math.min(range.start + shift + oldPrefixLen, range.end - 1);
+          if (delEnd > delStart) {
+            requests.push({
+              deleteContentRange: {
+                range: { startIndex: delStart, endIndex: delEnd }
+              }
+            });
+          }
+        }
+      });
+
+      if (requests.length > 0) {
+        Docs.Documents.batchUpdate({ requests: requests }, docId);
+      }
+    }
+
+    config.baseTitles = baseTitles;
+    StorageService.setConfig(config);
+    return nodes;
+  }
+
+  // ── Refresh native Google Docs TOC ─────────────────────────────────────────
+
+  function refreshToc() {
+    try {
+      var docId = DocumentApp.getActiveDocument().getId();
+      var docData = Docs.Documents.get(docId, { fields: 'body.content' });
+      var content = (docData.body && docData.body.content) || [];
+
+      var tocIndex = -1;
+      for (var i = 0; i < content.length; i++) {
+        if (content[i].tableOfContents) {
+          tocIndex = content[i].startIndex;
+          break;
+        }
+      }
+
+      if (tocIndex < 0) return; // no TOC in document
+
+      Docs.Documents.batchUpdate({
+        requests: [
+          { deleteContentRange: { range: { startIndex: tocIndex, endIndex: tocIndex + 1 } } },
+          { insertTableOfContents: { location: { index: tocIndex } } }
+        ]
+      }, docId);
+    } catch (e) {
+      Logger.log('mostly-organised: refreshToc failed — ' + e.message);
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   function _slugify(text) {
@@ -249,6 +430,9 @@ var SyncEngine = (function () {
     reconcile: reconcile,
     detectDrift: detectDrift,
     getTree: getTree,
-    invalidateAndResync: invalidateAndResync
+    invalidateAndResync: invalidateAndResync,
+    validateStructure: validateStructure,
+    applyNumberingInDocument: applyNumberingInDocument,
+    refreshToc: refreshToc
   };
 })();
